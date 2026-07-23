@@ -27,8 +27,14 @@ import imgEnd5835 from '../assets/images/end5835.png';
 import imgEndHigh from '../assets/images/endHigh.png';
 import imgEndFull from '../assets/images/endFull.png';
 import imgEndLow from '../assets/images/endLow.png';
+import imgXiaoLongBao from '../assets/images/xiaolongbao.png';
+import imgXigua from '../assets/images/xigua.png';
+import imgZhaxia from '../assets/images/zhaxia.png';
+import imgLongmibao from '../assets/images/longmibao.png';
+import imgZhaxiaSkill from '../assets/images/我是炸虾.png';
+import imgFreezeSkill from '../assets/images/全部冻上.png';
 
-// 音频
+// 音频img
 import audioBgm from '../assets/audio/bgm.mp3';
 import audioEat from '../assets/audio/eat.mp3';
 import audioGhost from '../assets/audio/ghost.mp3';
@@ -63,11 +69,13 @@ const IMG = {
   endLow: imgEndLow,
   // 加分食物列表（图片复用已提取的资源，实际游戏中对应小笼包/瓜咪/虾咪/龙秘宝）
   goodsList: [
-    { img: imgEnd142, point: 1 }, // 小笼包（占位，可替换为真实素材）
-    { img: imgEnd234, point: 2 }, // 瓜咪
-    { img: imgEnd325, point: 3 }, // 虾咪
-    { img: imgEnd5835, point: 5 }, // 龙秘宝
+    { img: imgXiaoLongBao, point: 1 },
+    { img: imgXigua, point: 2 },
+    { img: imgZhaxia, point: 3 },
+    { img: imgLongmibao, point: 5 }
   ],
+  zhaxiaSkill: imgZhaxiaSkill,
+  freezeSkill: imgFreezeSkill,
 };
 
 const AUDIO_SRC = {
@@ -97,6 +105,42 @@ const DEFAULT_SAVE = {
     endLow: 0,
   },
   catches: { bomb: 0, ice: 0, xiaolong: 0, ghost: 0, food: 0 },
+  skills: { active: null, passive: null },
+};
+
+const SKILL_CATALOG = {
+  bigbelly: {
+    id: 'bigbelly',
+    slot: 'active',
+    name: '大胃瓜咪',
+    defaultUnlocked: true,
+    icon: () => IMG.endHigh,
+    desc: '立刻吃掉场上所有食物',
+  },
+  skill142: {
+    id: 'skill142',
+    slot: 'active',
+    name: '142',
+    unlockEnding: 'end142',
+    icon: () => IMG.end142,
+    desc: '当前页面冰块全部变成小笼包',
+  },
+  zhaxiaPass: {
+    id: 'zhaxiaPass',
+    slot: 'passive',
+    name: '炸虾瓜咪',
+    defaultUnlocked: true,
+    icon: () => IMG.zhaxiaSkill,
+    desc: '场上所有食物变成炸虾（拾取掉落物触发）',
+  },
+  freeze: {
+    id: 'freeze',
+    slot: 'passive',
+    name: '结冰',
+    unlockEnding: 'endFreeze',
+    icon: () => IMG.freezeSkill,
+    desc: '物品移速减半（拾取掉落物触发）',
+  },
 };
 
 const ENDING_LIST = [
@@ -129,8 +173,254 @@ function loadSave() {
       if (typeof saved.catches?.[k] === 'number')
         data.catches[k] = saved.catches[k];
     });
+    if (saved.skills) {
+      if (saved.skills.active === null || typeof saved.skills.active === 'string')
+        data.skills.active = saved.skills.active;
+      if (saved.skills.passive === null || typeof saved.skills.passive === 'string')
+        data.skills.passive = saved.skills.passive;
+    }
   } catch (e) {}
   return data;
+}
+function isSkillUnlocked(skillId, data) {
+  const def = SKILL_CATALOG[skillId];
+  if (!def) return false;
+  if (def.defaultUnlocked) return true;
+  const save = data || loadSave();
+  return (save.endings[def.unlockEnding] || 0) > 0;
+}
+function getValidatedSkills(data) {
+  const save = data || loadSave();
+  let active = save.skills?.active || null;
+  let passive = save.skills?.passive || null;
+  if (active && !isSkillUnlocked(active, save)) active = null;
+  if (passive && !isSkillUnlocked(passive, save)) passive = null;
+  return { active, passive };
+}
+function setEquippedSkill(slot, skillId) {
+  const data = loadSave();
+  if (!data.skills) data.skills = { active: null, passive: null };
+  data.skills[slot] = skillId;
+  saveSave(data);
+  renderSkillSlots(data);
+}
+function renderSkillSlotUI(slotEl, iconEl, skillId) {
+  if (skillId && SKILL_CATALOG[skillId]) {
+    const def = SKILL_CATALOG[skillId];
+    slotEl.classList.remove('empty');
+    iconEl.src = def.icon();
+    iconEl.alt = def.name;
+    iconEl.classList.remove('hide');
+  } else {
+    slotEl.classList.add('empty');
+    iconEl.removeAttribute('src');
+    iconEl.alt = '';
+    iconEl.classList.add('hide');
+  }
+}
+function renderSkillSlots(data) {
+  const skills = getValidatedSkills(data);
+  renderSkillSlotUI(activeSkillSlot, activeSkillIcon, skills.active);
+  renderSkillSlotUI(passiveSkillSlot, passiveSkillIcon, skills.passive);
+}
+function openSkillPicker(slot) {
+  skillPickerSlot = slot;
+  skillsPopTitle.textContent = slot === 'active' ? '选择主动技能' : '选择被动技能';
+  renderSkillPicker();
+  startPop.classList.add('hide');
+  skillsPop.classList.remove('hide');
+}
+function closeSkillPicker() {
+  skillsPop.classList.add('hide');
+  startPop.classList.remove('hide');
+  skillPickerSlot = null;
+}
+function renderSkillPicker() {
+  const data = loadSave();
+  const current = getValidatedSkills(data)[skillPickerSlot];
+  skillsList.innerHTML = '';
+  const noneBtn = document.createElement('button');
+  noneBtn.type = 'button';
+  noneBtn.className = 'skill-pick' + (current === null ? ' selected' : '');
+  noneBtn.innerHTML = '<p class="skill-pick-name">无</p>';
+  noneBtn.onclick = () => {
+    setEquippedSkill(skillPickerSlot, null);
+    closeSkillPicker();
+  };
+  skillsList.appendChild(noneBtn);
+  Object.values(SKILL_CATALOG)
+    .filter((s) => s.slot === skillPickerSlot)
+    .forEach((def) => {
+      const unlocked = isSkillUnlocked(def.id, data);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className =
+        'skill-pick' +
+        (current === def.id ? ' selected' : '') +
+        (unlocked ? '' : ' locked');
+      btn.innerHTML =
+        `<img src="${def.icon()}" alt="${def.name}">` +
+        `<p class="skill-pick-name">${def.name}</p>`;
+      if (unlocked) {
+        btn.onclick = () => {
+          setEquippedSkill(skillPickerSlot, def.id);
+          closeSkillPicker();
+        };
+      } else {
+        btn.title = '需达成对应结局解锁';
+      }
+      skillsList.appendChild(btn);
+    });
+}
+function getPassiveSpeedMult() {
+  return isPassiveBuffActive() && equippedPassive === 'freeze' ? 0.5 : 1;
+}
+function isPassiveBuffActive() {
+  return !!equippedPassive && Date.now() < passiveBuffUntil;
+}
+function activatePassiveBuff() {
+  passiveBuffUntil = Date.now() + PASSIVE_BUFF_MS;
+  updatePassiveBuffUI();
+}
+function updatePassiveBuffUI() {
+  const wrap = document.getElementById('passiveBuffWrap');
+  const timeEl = document.getElementById('passiveBuffTime');
+  if (!isPlay || !isPassiveBuffActive()) {
+    wrap.classList.add('hide');
+    return;
+  }
+  const left = Math.ceil((passiveBuffUntil - Date.now()) / 1000);
+  timeEl.textContent = left;
+  wrap.classList.remove('hide');
+}
+function getPassivePickupAlphaKey(passiveId) {
+  return 'passive_' + passiveId;
+}
+function spawnPassivePickupItem() {
+  const def = SKILL_CATALOG[equippedPassive];
+  if (!def) return false;
+  const div = document.createElement('div');
+  div.className = 'item';
+  div.dataset.type = 'passive_pickup';
+  div.dataset.passiveId = equippedPassive;
+  div.dataset.alphaKey = getPassivePickupAlphaKey(equippedPassive);
+  div.style.backgroundImage = `url(${def.icon()})`;
+  div.style.width = Math.round(itemW) + 'px';
+  div.style.height = Math.round(itemH) + 'px';
+  const minGap = itemW + 10 * scale;
+  let randomLeft = Math.random() * (window.innerWidth - itemW);
+  let attempts = 0;
+  while (
+    attempts < 15 &&
+    dropList.some((ex) => Math.abs(ex.x - randomLeft) < minGap)
+  ) {
+    randomLeft = Math.random() * (window.innerWidth - itemW);
+    attempts++;
+  }
+  div.style.left = randomLeft + 'px';
+  div.style.top = `-${itemH}px`;
+  gameWrap.appendChild(div);
+  const currentDropSpeed = dropSpeed;
+  dropList.push({
+    dom: div,
+    x: randomLeft,
+    y: -itemH,
+    w: itemW,
+    h: itemH,
+    speed: currentDropSpeed * (0.85 + Math.random() * 0.3),
+  });
+  return true;
+}
+function getZhaxiaGood() {
+  return IMG.goodsList[2];
+}
+function applyZhaxiaToGoodItem(item) {
+  const zhaxia = getZhaxiaGood();
+  item.dom.dataset.type = 'good';
+  item.dom.dataset.point = String(zhaxia.point);
+  item.dom.dataset.alphaKey = zhaxia.alphaKey;
+  item.dom.style.backgroundImage = `url(${zhaxia.img})`;
+}
+function onCatchGood(getPoint, silent) {
+  if (!silent) playSound('eat');
+  combo++;
+  multiplier = Math.round((1 + combo * 0.1) * 10) / 10;
+  score += Math.round(getPoint * multiplier);
+  scoreBox.innerText = score;
+  updateComboDisplay();
+  updatePaddleSize();
+  dropSpeed = Math.min(3 + Math.floor(score / 60), 8) * speedScale;
+  clearInterval(createTimer);
+  const interval = Math.max(850 - score * 4, 400);
+  createTimer = setInterval(createItem, interval);
+}
+function getPaddleVacuumTarget() {
+  const bottom = window.innerHeight - Math.round(30 * scale);
+  return { x: padX + padW / 2, y: bottom - padH / 2 };
+}
+function transformIceToXiaolongbao() {
+  const bao = IMG.goodsList[0];
+  dropList.forEach((item) => {
+    if (item.dom.dataset.type !== 'ice') return;
+    item.dom.dataset.type = 'good';
+    item.dom.dataset.point = String(bao.point);
+    item.dom.dataset.alphaKey = bao.alphaKey;
+    item.dom.style.backgroundImage = `url(${bao.img})`;
+    if (isPassiveBuffActive() && equippedPassive === 'zhaxiaPass')
+      applyZhaxiaToGoodItem(item);
+  });
+}
+function vacuumAllFood() {
+  const foods = dropList.filter(
+    (item) => item.dom.dataset.type === 'good' && !item.sucking,
+  );
+  if (foods.length === 0) return false;
+  flashPaddle('good');
+  playSound('eat');
+  const target = getPaddleVacuumTarget();
+  foods.forEach((item, idx) => {
+    item.sucking = true;
+    item.suckStartX = item.x;
+    item.suckStartY = item.y;
+    item.suckT = 0;
+    item.suckDuration = 280 + idx * 45 + Math.random() * 80;
+    item.suckTargetX = target.x - item.w / 2;
+    item.suckTargetY = target.y - item.h / 2;
+    item.dom.classList.add('sucking');
+  });
+  return true;
+}
+function collectVacuumedFood(index) {
+  const item = dropList[index];
+  statFood++;
+  onCatchGood(Number(item.dom.dataset.point), true);
+  item.dom.classList.remove('sucking');
+  item.dom.style.transform = '';
+  removeItem(index);
+}
+function updateInGameSkillBtn() {
+  if (!equippedActive || !isPlay) {
+    activeSkillBtn.style.display = 'none';
+    return;
+  }
+  const def = SKILL_CATALOG[equippedActive];
+  activeSkillBtn.style.display = 'block';
+  activeSkillBtn.style.backgroundImage = `url(${def.icon()})`;
+  activeSkillBtn.classList.toggle('used', activeSkillUsed);
+}
+function useActiveSkill() {
+  if (!isPlay || isPaused || !equippedActive || activeSkillUsed) return;
+  let used = false;
+  if (equippedActive === 'skill142') {
+    transformIceToXiaolongbao();
+    used = true;
+  } else if (equippedActive === 'bigbelly') {
+    used = vacuumAllFood();
+  }
+  if (used) {
+    activeSkillUsed = true;
+    updateInGameSkillBtn();
+  }
 }
 function saveSave(data) {
   try {
@@ -157,6 +447,7 @@ function recordGameResult(endingId, runStats) {
   data.catches.food += runStats.food;
   saveSave(data);
   renderSaveStats(data);
+  renderSkillSlots(data);
 }
 
 // ===================== DOM 缓存 =====================
@@ -167,12 +458,21 @@ const lifeBox = document.getElementById('life');
 const startPop = document.getElementById('startPop');
 const overPop = document.getElementById('overPop');
 const endingsPop = document.getElementById('endingsPop');
+const skillsPop = document.getElementById('skillsPop');
 const finalScore = document.getElementById('finalScore');
 const startBtn = document.getElementById('startBtn');
 const restartBtn = document.getElementById('restartBtn');
 const homeBtn = document.getElementById('homeBtn');
 const endingsBtn = document.getElementById('endingsBtn');
 const endingsBackBtn = document.getElementById('endingsBackBtn');
+const skillsPopTitle = document.getElementById('skillsPopTitle');
+const skillsList = document.getElementById('skillsList');
+const skillsBackBtn = document.getElementById('skillsBackBtn');
+const activeSkillSlot = document.getElementById('activeSkillSlot');
+const passiveSkillSlot = document.getElementById('passiveSkillSlot');
+const activeSkillIcon = document.getElementById('activeSkillIcon');
+const passiveSkillIcon = document.getElementById('passiveSkillIcon');
+const activeSkillBtn = document.getElementById('activeSkillBtn');
 const startCoverImg = document.getElementById('startCoverImg');
 const resultImg = document.getElementById('resultImg');
 const loadingMask = document.getElementById('loadingMask');
@@ -317,6 +617,8 @@ async function preloadAllAssets() {
     { key: 'ice', src: IMG.ice },
     { key: 'xiaolong', src: IMG.xiaolong },
     { key: 'ghost', src: IMG.ghost },
+    { key: 'passive_freeze', src: IMG.freezeSkill },
+    { key: 'passive_zhaxiaPass', src: IMG.zhaxiaSkill },
     ...IMG.goodsList.map((g) => ({ key: g.alphaKey, src: g.img })),
   ];
   const alphaMap = {};
@@ -351,6 +653,8 @@ async function preloadAllAssets() {
       IMG.ice,
       IMG.xiaolong,
       IMG.ghost,
+      IMG.zhaxiaSkill,
+      IMG.freezeSkill,
       ...IMG.goodsList.map((g) => g.img),
     ]),
   ];
@@ -528,6 +832,13 @@ let statBomb = 0,
   statXiaolong = 0,
   statGhost = 0,
   statFood = 0;
+let equippedActive = null;
+let equippedPassive = null;
+let activeSkillUsed = false;
+let skillPickerSlot = null;
+let passiveBuffUntil = 0;
+const PASSIVE_BUFF_MS = 30000;
+const PASSIVE_PICKUP_RATE = 0.04;
 
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
@@ -546,6 +857,7 @@ preloadAllAssets();
 
 // ===================== 存档渲染 =====================
 renderSaveStats(loadSave());
+renderSkillSlots(loadSave());
 
 // ===================== 托盘控制 =====================
 function updatePad() {
@@ -596,6 +908,10 @@ gameWrap.addEventListener('mousemove', (e) => {
 // ===================== 掉落物生成 =====================
 function createItem() {
   if (!isPlay || isMenuOpen()) return;
+  if (equippedPassive && Math.random() < PASSIVE_PICKUP_RATE) {
+    spawnPassivePickupItem();
+    return;
+  }
   const div = document.createElement('div');
   div.className = 'item';
   const rand = Math.random();
@@ -701,15 +1017,48 @@ function gameLoop(timestamp) {
   const dt = Math.min(timestamp - lastFrameTime, 50);
   lastFrameTime = timestamp;
   const timeScale = dt / 16.667;
+  updatePassiveBuffUI();
 
   for (let i = dropList.length - 1; i >= 0; i--) {
     const item = dropList[i];
-    item.y += item.speed * timeScale;
+
+    if (item.sucking) {
+      item.suckT += dt;
+      const t = Math.min(item.suckT / item.suckDuration, 1);
+      const ease = t * t * t;
+      item.x = item.suckStartX + (item.suckTargetX - item.suckStartX) * ease;
+      item.y = item.suckStartY + (item.suckTargetY - item.suckStartY) * ease;
+      item.dom.style.left = Math.round(item.x) + 'px';
+      item.dom.style.top = Math.round(item.y) + 'px';
+      const shrink = 1 - ease * 0.35;
+      item.dom.style.transform = `scale(${shrink})`;
+      if (t >= 1) collectVacuumedFood(i);
+      continue;
+    }
+
+    if (
+      isPassiveBuffActive() &&
+      equippedPassive === 'zhaxiaPass' &&
+      item.dom.dataset.type === 'good' &&
+      item.dom.dataset.alphaKey !== getZhaxiaGood().alphaKey
+    ) {
+      applyZhaxiaToGoodItem(item);
+    }
+
+    item.y += item.speed * getPassiveSpeedMult() * timeScale;
     item.dom.style.top = Math.round(item.y) + 'px';
 
     if (hitTest(item)) {
       const type = item.dom.dataset.type;
       removeItem(i);
+
+      if (type === 'passive_pickup') {
+        playSound('eat');
+        flashPaddle('good');
+        activatePassiveBuff();
+        continue;
+      }
+
       flashPaddle(type);
 
       if (type === 'bomb') statBomb++;
@@ -719,18 +1068,7 @@ function gameLoop(timestamp) {
       if (type === 'good') statFood++;
 
       if (type === 'good') {
-        playSound('eat');
-        const pt = Number(item.dom.dataset.point);
-        combo++;
-        multiplier = Math.round((1 + combo * 0.1) * 10) / 10;
-        score += Math.round(pt * multiplier);
-        scoreBox.innerText = score;
-        updateComboDisplay();
-        updatePaddleSize();
-        dropSpeed = Math.min(3 + Math.floor(score / 60), 8) * speedScale;
-        clearInterval(createTimer);
-        const interval = Math.max(850 - score * 4, 400);
-        createTimer = setInterval(createItem, interval);
+        onCatchGood(Number(item.dom.dataset.point));
       } else if (type === 'ghost') {
         playSound('ghost');
         life++;
@@ -841,6 +1179,7 @@ function renderEndingsGallery() {
 function openEndingsGallery() {
   renderEndingsGallery();
   startPop.classList.add('hide');
+  skillsPop.classList.add('hide');
   endingsPop.classList.remove('hide');
 }
 function closeEndingsGallery() {
@@ -851,7 +1190,8 @@ function isMenuOpen() {
   return (
     !startPop.classList.contains('hide') ||
     !overPop.classList.contains('hide') ||
-    !endingsPop.classList.contains('hide')
+    !endingsPop.classList.contains('hide') ||
+    !skillsPop.classList.contains('hide')
   );
 }
 
@@ -882,8 +1222,16 @@ function startGame() {
   startPop.classList.add('hide');
   overPop.classList.add('hide');
   endingsPop.classList.add('hide');
+  skillsPop.classList.add('hide');
+  const skills = getValidatedSkills();
+  equippedActive = skills.active;
+  equippedPassive = skills.passive;
+  activeSkillUsed = false;
+  passiveBuffUntil = 0;
+  document.getElementById('passiveBuffWrap').classList.add('hide');
   isPlay = true;
   document.getElementById('pauseBtn').style.display = 'block';
+  updateInGameSkillBtn();
   lastFrameTime = null;
   if (!audioBuf.bgm) {
     decodeAllAudio().then(() => playSound('bgm'));
@@ -914,16 +1262,22 @@ function returnToMain() {
   dropList = [];
   paddle.style.backgroundImage = `url(${IMG.paddle})`;
   document.getElementById('pauseBtn').style.display = 'none';
+  activeSkillBtn.style.display = 'none';
+  document.getElementById('passiveBuffWrap').classList.add('hide');
   document.getElementById('pauseMask').classList.add('hide');
   overPop.classList.add('hide');
   endingsPop.classList.add('hide');
+  skillsPop.classList.add('hide');
   startPop.classList.remove('hide');
   renderSaveStats(loadSave());
+  renderSkillSlots(loadSave());
 }
 
 function gameOver() {
   isPlay = false;
   document.getElementById('pauseBtn').style.display = 'none';
+  activeSkillBtn.style.display = 'none';
+  document.getElementById('passiveBuffWrap').classList.add('hide');
   isPaused = false;
   if (frameId) cancelAnimationFrame(frameId);
   frameId = null;
@@ -955,6 +1309,10 @@ restartBtn.onclick = startGame;
 homeBtn.onclick = returnToMain;
 endingsBtn.onclick = openEndingsGallery;
 endingsBackBtn.onclick = closeEndingsGallery;
+activeSkillSlot.onclick = () => openSkillPicker('active');
+passiveSkillSlot.onclick = () => openSkillPicker('passive');
+skillsBackBtn.onclick = closeSkillPicker;
+activeSkillBtn.addEventListener('click', useActiveSkill);
 
 // ===================== 暂停 / 继续 =====================
 // （pauseBtn/pauseMask/resumeBtn 已在 DOM 缓存区声明）
